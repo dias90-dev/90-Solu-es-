@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Information about a user",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "credits": { "type": "number" },
+        "plan": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["email", "credits", "plan", "createdAt"]
+    },
+    "Song": {
+      "title": "Song",
+      "description": "A generated song",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "title": { "type": "string" },
+        "genre": { "type": "string" },
+        "tempo": { "type": "number" },
+        "prompt": { "type": "string" },
+        "songData": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["ownerId", "title", "genre", "tempo", "songData", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles"
+    },
+    "songs/{songId}": {
+      "schema": { "$ref": "#/entities/Song" },
+      "description": "User generated songs"
+    }
+  }
+}

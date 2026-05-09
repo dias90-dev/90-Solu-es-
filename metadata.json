@@ -1,0 +1,5 @@
+{
+  "name": "Beatron AI Pro",
+  "description": "An advanced AI-powered music and beat maker using Gemini and Tone.js",
+  "requestFramePermissions": []
+}
