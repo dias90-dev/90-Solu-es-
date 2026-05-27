@@ -8,9 +8,10 @@
         "email": { "type": "string" },
         "credits": { "type": "number" },
         "plan": { "type": "string" },
+        "lastResetWeek": { "type": "number" },
         "createdAt": { "type": "timestamp" }
       },
-      "required": ["email", "credits", "plan", "createdAt"]
+      "required": ["email", "credits", "plan", "lastResetWeek", "createdAt"]
     },
     "Song": {
       "title": "Song",

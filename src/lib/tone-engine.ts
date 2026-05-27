@@ -1,12 +1,12 @@
 import * as Tone from 'tone';
 
 export interface GeneratedTrack {
-  instrument: 'melody' | 'bass' | 'drums' | 'viola' | 'violino' | 'marimba' | 'batuque' | 'sacarias' | 'voz';
+  instrument: 'melody' | 'bass' | 'drums' | 'viola' | 'violino' | 'marimba' | 'batuque' | 'sacarias' | 'voz' | 'kora' | 'mbira' | 'guitar' | 'guitar_solo';
   notes: {
     time: string; // e.g., "0:0:0"
     note?: string; // e.g., "C4"
     duration?: string; // e.g., "8n"
-    drum?: 'kick' | 'snare' | 'hihat' | 'openhat' | 'batuque' | 'sacarias';
+    drum?: 'kick' | 'snare' | 'hihat' | 'openhat' | 'batuque' | 'sacarias' | 'djembe';
     solfeggio?: string; // e.g., "Do", "Re"
     lyric?: string;
   }[];
@@ -32,6 +32,12 @@ class ToneEngine {
   private sacariasSynth: Tone.MetalSynth | null = null;
   private vozSynth: Tone.PolySynth | null = null;
   
+  private koraSynth: Tone.PolySynth | null = null;
+  private mbiraSynth: Tone.PolySynth | null = null;
+  private djembeSynth: Tone.MembraneSynth | null = null;
+  private guitarSynth: Tone.PolySynth | null = null;
+  private guitarSoloSynth: Tone.PolySynth | null = null;
+  
   private parts: Tone.Part[] = [];
   public isInitialized = false;
   public analyser: Tone.Analyser | null = null;
@@ -44,6 +50,74 @@ class ToneEngine {
   // Callbacks for UI updates
   public onBeat?: (beat: number) => void;
   private beatEventId: number | null = null;
+  
+  public setSynthPreset(presetName: string) {
+    if (!this.isInitialized) return;
+    if (presetName === 'Sintético') {
+      this.melodySynth?.set({ oscillator: { type: "square" }, envelope: { attack: 0.05, decay: 0.1, sustain: 0.8, release: 0.2 } });
+      this.bassSynth?.set({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.05, decay: 0.2, sustain: 0.8, release: 0.3 } });
+    } else if (presetName === 'Suave') {
+      this.melodySynth?.set({ oscillator: { type: "sine" }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.5, release: 2 } });
+      this.bassSynth?.set({ oscillator: { type: "triangle" }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.5, release: 1 } });
+    } else {
+      // Padrão
+      this.melodySynth?.set({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 1.5 } });
+      this.bassSynth?.set({ oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.4, sustain: 0.6, release: 1.2 } });
+    }
+  }
+
+  public vocalProcessingStyle: 'Dry' | 'Warm' | 'Echo' = 'Dry';
+  public vocalGender: 'masculino' | 'feminino' | 'aleatorio' = 'aleatorio';
+  public vocalAccent: string = 'aleatorio';
+  public vocalVantage: string = "Saturação Quente Analógica";
+
+  public setVocalProfile(gender: 'masculino' | 'feminino' | 'aleatorio', accent: string, vantage: string) {
+    this.vocalGender = gender;
+    this.vocalAccent = accent;
+    this.vocalVantage = vantage;
+  }
+
+  public handleNoteTranspose(note: string): string {
+    if (!note) return note;
+    if (this.vocalGender === 'feminino') {
+      if (note.includes('2') || note.includes('3')) {
+        const octaveStr = note.replace(/^\D+/, '');
+        const noteLetter = note.replace(/\d+$/, '');
+        const octave = parseInt(octaveStr, 10);
+        return `${noteLetter}${octave + 1}`;
+      }
+    } else if (this.vocalGender === 'masculino') {
+      if (note.includes('4') || note.includes('5')) {
+        const octaveStr = note.replace(/^\D+/, '');
+        const noteLetter = note.replace(/\d+$/, '');
+        const octave = parseInt(octaveStr, 10);
+        return `${noteLetter}${Math.max(2, octave - 1)}`;
+      }
+    }
+    return note;
+  }
+
+  public setVocalProcessingStyle(style: 'Dry' | 'Warm' | 'Echo') {
+    this.vocalProcessingStyle = style;
+    if (!this.vozSynth) return;
+
+    if (style === 'Dry') {
+      this.vozSynth.set({
+        oscillator: { type: "sine" },
+        envelope: { attack: 0.05, decay: 0.1, sustain: 1, release: 0.3 }
+      });
+    } else if (style === 'Warm') {
+      this.vozSynth.set({
+        oscillator: { type: "triangle" },
+        envelope: { attack: 0.15, decay: 0.4, sustain: 0.8, release: 0.8 }
+      });
+    } else if (style === 'Echo') {
+      this.vozSynth.set({
+        oscillator: { type: "sawtooth" },
+        envelope: { attack: 0.1, decay: 0.3, sustain: 0.7, release: 1.2 }
+      });
+    }
+  }
 
   async init() {
     if (this.isInitialized) return;
@@ -130,7 +204,6 @@ class ToneEngine {
 
     // Hi-hat
     this.hihatSynth = new Tone.MetalSynth({
-      frequency: 250,
       envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
       harmonicity: 5.1,
       modulationIndex: 32,
@@ -185,7 +258,6 @@ class ToneEngine {
 
     // Sacarias / Reco-reco
     this.sacariasSynth = new Tone.MetalSynth({
-      frequency: 200,
       envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
       harmonicity: 3.1,
       modulationIndex: 16,
@@ -201,6 +273,59 @@ class ToneEngine {
     });
     const chorus = new Tone.Chorus(4, 2.5, 0.5).start();
     this.vozSynth.chain(chorus, this.reverb);
+
+    // Kora
+    this.koraSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 3.0,
+      modulationIndex: 1.2,
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.05, decay: 0.3, sustain: 0.2, release: 1.2 },
+      modulation: { type: "sawtooth" },
+      modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 }
+    });
+    this.koraSynth.connect(this.reverb);
+
+    // Mbira
+    this.mbiraSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 4.8,
+      modulationIndex: 2.1,
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.4 },
+      modulation: { type: "square" },
+      modulationEnvelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 }
+    });
+    this.mbiraSynth.connect(this.reverb);
+
+    // Djembe
+    this.djembeSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.05,
+      octaves: 4,
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.8 }
+    });
+    this.djembeSynth.connect(this.distortion);
+
+    // Guitar (Clean-ish Rhythm)
+    this.guitarSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 3.5,
+      modulationIndex: 1,
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 1 },
+      modulation: { type: "sine" },
+      modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.2 }
+    });
+    this.guitarSynth.connect(this.reverb);
+
+    // Guitar Solo (Distorted Lead)
+    this.guitarSoloSynth = new Tone.PolySynth(Tone.MonoSynth, {
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.02, decay: 0.3, sustain: 0.8, release: 0.4 },
+      filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.5, baseFrequency: 200, octaves: 4 }
+    });
+    const soloDist = new Tone.Distortion(0.8);
+    const soloFilter = new Tone.Filter(2000, "lowpass");
+    this.guitarSoloSynth.chain(soloDist, soloFilter, this.distortion);
+    this.guitarSoloSynth.connect(this.delay);
 
     // Schedule beat events for UI
     this.beatEventId = Tone.Transport.scheduleRepeat((time) => {
@@ -262,7 +387,39 @@ class ToneEngine {
 
       if (track.instrument === 'voz' && this.vozSynth) {
         const part = new Tone.Part((time, value) => {
-          this.vozSynth!.triggerAttackRelease(value.note!, value.duration!, time);
+          this.vozSynth!.triggerAttackRelease(this.handleNoteTranspose(value.note!), value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+        this.parts.push(part);
+      }
+
+      if (track.instrument === 'kora' && this.koraSynth) {
+        const part = new Tone.Part((time, value) => {
+          this.koraSynth!.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+        this.parts.push(part);
+      }
+
+      if (track.instrument === 'mbira' && this.mbiraSynth) {
+        const part = new Tone.Part((time, value) => {
+          this.mbiraSynth!.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+        this.parts.push(part);
+      }
+      
+      if (track.instrument === 'guitar' && this.guitarSynth) {
+        const part = new Tone.Part((time, value) => {
+          this.guitarSynth!.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+        this.parts.push(part);
+      }
+
+      if (track.instrument === 'guitar_solo' && this.guitarSoloSynth) {
+        const part = new Tone.Part((time, value) => {
+          this.guitarSoloSynth!.triggerAttackRelease(value.note!, value.duration!, time);
         }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
         part.start(0);
         this.parts.push(part);
@@ -318,6 +475,9 @@ class ToneEngine {
           if (value.drum === 'sacarias' && this.sacariasSynth) {
             this.sacariasSynth.triggerAttackRelease('16n', time, 0.8);
           }
+          if (value.drum === 'djembe' && this.djembeSynth) {
+            this.djembeSynth.triggerAttackRelease('G2', '8n', time);
+          }
         }, track.notes.map(n => ({ time: n.time, drum: n.drum })));
         part.start(0);
         this.parts.push(part);
@@ -369,6 +529,39 @@ class ToneEngine {
     const player = new Tone.Player(url).connect(this.distortion!);
     await player.load(url);
     this.customSamples[type] = player;
+  }
+
+  triggerDrumPreview(drum: string) {
+    if (!this.isInitialized) return;
+    const time = Tone.now();
+    if (drum === 'kick') {
+      if (this.customSamples['kick']) this.customSamples['kick'].start(time);
+      else if (this.kickSynth) this.kickSynth.triggerAttackRelease('C1', '8n', time);
+    } else if (drum === 'snare') {
+      if (this.customSamples['snare']) this.customSamples['snare'].start(time);
+      else {
+        this.snareBody?.triggerAttackRelease('G3', '16n', time);
+        this.snareNoise?.triggerAttackRelease('16n', time);
+      }
+    } else if (drum === 'hihat') {
+      if (this.customSamples['hihat']) this.customSamples['hihat'].start(time);
+      else if (this.hihatSynth) {
+        this.hihatSynth.envelope.decay = 0.05;
+        this.hihatSynth.triggerAttackRelease('32n', time);
+      }
+    } else if (drum === 'openhat') {
+      if (this.customSamples['openhat']) this.customSamples['openhat'].start(time);
+      else if (this.hihatSynth) {
+        this.hihatSynth.envelope.decay = 0.4;
+        this.hihatSynth.triggerAttackRelease('8n', time);
+      }
+    } else if (drum === 'batuque' && this.batuqueSynth) {
+      this.batuqueSynth.triggerAttackRelease('E2', '8n', time);
+    } else if (drum === 'sacarias' && this.sacariasSynth) {
+      this.sacariasSynth.triggerAttackRelease('16n', time, 0.8);
+    } else if (drum === 'djembe' && this.djembeSynth) {
+      this.djembeSynth.triggerAttackRelease('G2', '8n', time);
+    }
   }
 }
 
@@ -457,7 +650,7 @@ export async function exportWav(
     snareNoise.connect(reverb);
 
     const hihatSynth = new Tone.MetalSynth({
-      frequency: 250, envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+      envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
       harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5
     });
     const hihatFilter = new Tone.Filter(4000, "highpass");
@@ -487,16 +680,61 @@ export async function exportWav(
     }).connect(distortion);
 
     const sacariasSynth = new Tone.MetalSynth({
-      frequency: 200, envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
+      envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
       harmonicity: 3.1, modulationIndex: 16, resonance: 3000, octaves: 1
     }).connect(distortion);
 
+    const style = toneEngine.vocalProcessingStyle;
     const vozSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "sine" }, envelope: { attack: 0.1, decay: 0.2, sustain: 0.9, release: 0.5 }
+      oscillator: { type: style === 'Warm' ? "triangle" : style === 'Echo' ? "sawtooth" : "sine" },
+      envelope: {
+        attack: style === 'Warm' ? 0.15 : style === 'Echo' ? 0.1 : 0.05,
+        decay: style === 'Warm' ? 0.4 : style === 'Echo' ? 0.3 : 0.1,
+        sustain: style === 'Warm' ? 0.8 : style === 'Echo' ? 0.7 : 1,
+        release: style === 'Warm' ? 0.8 : style === 'Echo' ? 1.2 : 0.3
+      }
     });
     const chorus = new Tone.Chorus(4, 2.5, 0.5).start();
-    vozSynth.chain(chorus, reverb);
+    if (style === 'Echo') {
+      const vocalDelay = new Tone.PingPongDelay("8n.", 0.4).connect(reverb);
+      vozSynth.chain(chorus, vocalDelay, reverb);
+    } else {
+      vozSynth.chain(chorus, reverb);
+    }
     
+    const koraSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 3.0, modulationIndex: 1.2, oscillator: { type: "triangle" },
+      envelope: { attack: 0.05, decay: 0.3, sustain: 0.2, release: 1.2 },
+      modulation: { type: "sawtooth" }, modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 }
+    }).connect(reverb);
+
+    const mbiraSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 4.8, modulationIndex: 2.1, oscillator: { type: "sine" },
+      envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.4 },
+      modulation: { type: "square" }, modulationEnvelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 }
+    }).connect(reverb);
+    
+    const guitarSynth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 3.5, modulationIndex: 1, oscillator: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 1 },
+      modulation: { type: "sine" }, modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.2 }
+    }).connect(reverb);
+
+    const guitarSoloSynth = new Tone.PolySynth(Tone.MonoSynth, {
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.02, decay: 0.3, sustain: 0.8, release: 0.4 },
+      filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.5, baseFrequency: 200, octaves: 4 }
+    });
+    const soloDist = new Tone.Distortion(0.8);
+    const soloFilter = new Tone.Filter(2000, "lowpass");
+    guitarSoloSynth.chain(soloDist, soloFilter, distortion);
+    guitarSoloSynth.connect(delay);
+
+    const djembeSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.05, octaves: 4, oscillator: { type: "sine" },
+      envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.8 }
+    }).connect(distortion);
+
     const customSamples: Partial<Record<string, Tone.Player>> = {};
     for (const [type, url] of Object.entries(customSampleUrls)) {
       const player = new Tone.Player(url).connect(distortion);
@@ -537,11 +775,39 @@ export async function exportWav(
 
       if (track.instrument === 'voz') {
         const part = new Tone.Part((time, value) => {
-          vozSynth.triggerAttackRelease(value.note!, value.duration!, time);
+          vozSynth.triggerAttackRelease(toneEngine.handleNoteTranspose(value.note!), value.duration!, time);
         }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
         part.start(0);
       }
       
+      if (track.instrument === 'kora') {
+        const part = new Tone.Part((time, value) => {
+          koraSynth.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+      }
+
+      if (track.instrument === 'mbira') {
+        const part = new Tone.Part((time, value) => {
+          mbiraSynth.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+      }
+
+      if (track.instrument === 'guitar') {
+        const part = new Tone.Part((time, value) => {
+          guitarSynth.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+      }
+
+      if (track.instrument === 'guitar_solo') {
+        const part = new Tone.Part((time, value) => {
+          guitarSoloSynth.triggerAttackRelease(value.note!, value.duration!, time);
+        }, track.notes.map(n => ({ time: n.time, note: n.note, duration: n.duration })));
+        part.start(0);
+      }
+
       if (track.instrument === 'bass') {
         const part = new Tone.Part((time, value) => {
           let note = value.note!;
@@ -589,6 +855,9 @@ export async function exportWav(
           }
           if (value.drum === 'sacarias') {
             sacariasSynth.triggerAttackRelease('16n', time, 0.8);
+          }
+          if (value.drum === 'djembe') {
+            djembeSynth.triggerAttackRelease('G2', '8n', time);
           }
         }, track.notes.map(n => ({ time: n.time, drum: n.drum })));
         part.start(0);

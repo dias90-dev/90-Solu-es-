@@ -10,41 +10,40 @@ service cloud.firestore {
     }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
-    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function isSignedIn() { return request.auth != null; }
     
     // User Profile
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['email', 'credits', 'plan', 'createdAt']) && data.keys().size() == 4
-        && data.email is string && data.email.size() <= 256
+      return data.keys().hasAll(['credits', 'plan', 'lastResetWeek', 'createdAt', 'email'])
         && data.credits is number && data.credits >= 0
         && data.plan is string && (data.plan == 'free' || data.plan == 'pro')
-        && data.createdAt == request.time;
+        && data.lastResetWeek is number && data.lastResetWeek >= 0
+        && data.createdAt == request.time
+        && data.email is string;
     }
     
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow create: if isSignedIn() && request.auth.uid == userId
                     && isValidId(userId)
-                    && isValidUserProfile(incoming())
-                    && incoming().plan == 'free' && incoming().credits == 5;
+                    && isValidUserProfile(incoming());
       allow update: if isSignedIn() && request.auth.uid == userId
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['credits', 'plan'])
-                    && incoming().email == existing().email
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['credits', 'plan', 'lastResetWeek'])
                     && incoming().createdAt == existing().createdAt
                     && incoming().credits is number && incoming().credits >= 0
-                    && incoming().plan is string && (incoming().plan == 'free' || incoming().plan == 'pro');
+                    && (incoming().keys().hasAll(['plan']) ? (incoming().plan == 'free' || incoming().plan == 'pro') : true)
+                    && incoming().lastResetWeek is number && incoming().lastResetWeek >= 0;
     }
     
     // Song
     function isValidSongCreate(data) {
       return data.keys().hasAll(['ownerId', 'title', 'genre', 'tempo', 'songData', 'createdAt']) 
-        && data.keys().size() >= 6
         && data.ownerId is string && data.ownerId == request.auth.uid
         && data.title is string && data.title.size() <= 256
         && data.genre is string && data.genre.size() <= 128
         && data.tempo is number && data.tempo >= 60 && data.tempo <= 240
-        && data.songData is string && data.songData.size() <= 500000
-        && (data.keys().hasAll(['prompt']) ? (data.prompt is string && data.prompt.size() <= 1024) : true)
+        && data.songData is string && data.songData.size() <= 600000
+        && (data.keys().hasAll(['prompt']) ? data.prompt is string : true)
         && data.createdAt == request.time;
     }
     
