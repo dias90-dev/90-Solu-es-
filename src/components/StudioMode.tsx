@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Save, Play, RefreshCw, Music, CheckCircle2, Pause, Sparkles, BookOpen, ChevronLeft, ChevronRight, Trash, ListFilter } from 'lucide-react';
+import { Mic, Square, Save, Play, RefreshCw, RotateCcw, Music, CheckCircle2, Pause, Sparkles, BookOpen, ChevronLeft, ChevronRight, Trash, ListFilter } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toneEngine } from '../lib/tone-engine';
@@ -246,7 +246,23 @@ export const StudioMode: React.FC<StudioModeProps> = ({
   const [editingTimestamp, setEditingTimestamp] = useState<number | null>(null);
   const [tempTitle, setTempTitle] = useState("");
   const [takeVolumes, setTakeVolumes] = useState<Record<number, number>>({});
+  const [normalizedTakes, setNormalizedTakes] = useState<Record<number, boolean>>({});
+  const [normalizationGains, setNormalizationGains] = useState<Record<number, number>>({});
+  const [isNormalizing, setIsNormalizing] = useState<Record<number, boolean>>({});
+  const [normalizationThresholds, setNormalizationThresholds] = useState<Record<number, number>>({});
+  const [maxPeaks, setMaxPeaks] = useState<Record<number, number>>({});
+  const [fadeInDurations, setFadeInDurations] = useState<Record<number, number>>({});
+  const [fadeOutDurations, setFadeOutDurations] = useState<Record<number, number>>({});
   const volumeNodeRef = useRef<GainNode | null>(null);
+
+  // Auto-analyze peaks of all recordings for precision mapping & visual indicators
+  useEffect(() => {
+    recordings.forEach(rec => {
+      if (maxPeaks[rec.timestamp] === undefined && !isNormalizing[rec.timestamp]) {
+        extractMaxPeak(rec).catch(err => console.warn("Auto peak analysis error:", err));
+      }
+    });
+  }, [recordings]);
 
   // Filtering & grouping states for recordings take list
   const [takeFilter, setTakeFilter] = useState<'All' | 'Dry' | 'Warm' | 'Echo'>('All');
@@ -325,9 +341,40 @@ export const StudioMode: React.FC<StudioModeProps> = ({
 
       // Define volume node and set current gain value
       const volumeNode = ctx.createGain();
-      const currentVol = takeVolumes[timestamp] !== undefined ? takeVolumes[timestamp] : 0.8;
-      volumeNode.gain.setValueAtTime(currentVol, ctx.currentTime);
+      let currentVol = takeVolumes[timestamp] !== undefined ? takeVolumes[timestamp] : 0.8;
+      if (normalizedTakes[timestamp] && normalizationGains[timestamp] !== undefined) {
+        currentVol = currentVol * normalizationGains[timestamp];
+      }
+
+      const fadeInDur = fadeInDurations[timestamp] || 0;
+      if (fadeInDur > 0) {
+        volumeNode.gain.setValueAtTime(0, ctx.currentTime);
+        volumeNode.gain.linearRampToValueAtTime(currentVol, ctx.currentTime + fadeInDur);
+      } else {
+        volumeNode.gain.setValueAtTime(currentVol, ctx.currentTime);
+      }
       volumeNodeRef.current = volumeNode;
+
+      // Handle Fade-Out scheduling when metadata/duration is loaded
+      const setupFadeOut = () => {
+        const duration = audio.duration;
+        const fadeOutDur = fadeOutDurations[timestamp] || 0;
+        if (duration && !isNaN(duration) && fadeOutDur > 0) {
+          const actualFadeOutDur = Math.min(fadeOutDur, duration);
+          const fadeOutStart = Math.max(0, duration - actualFadeOutDur);
+          try {
+            volumeNode.gain.setValueAtTime(currentVol, ctx.currentTime + fadeOutStart);
+            volumeNode.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+          } catch (e) {
+            console.warn("Could not schedule fade out:", e);
+          }
+        }
+      };
+
+      audio.onloadedmetadata = setupFadeOut;
+      if (audio.readyState >= 1) { // metadata already loaded
+        setupFadeOut();
+      }
 
       source.connect(volumeNode);
 
@@ -638,11 +685,111 @@ export const StudioMode: React.FC<StudioModeProps> = ({
     }
   };
 
+  const extractMaxPeak = async (rec: typeof recordings[0]): Promise<number> => {
+    if (maxPeaks[rec.timestamp] !== undefined) return maxPeaks[rec.timestamp];
+    
+    setIsNormalizing(prev => ({ ...prev, [rec.timestamp]: true }));
+    try {
+      const arrayBuffer = await rec.blob.arrayBuffer();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const tempCtx = new AudioContextClass();
+      const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
+      tempCtx.close();
+      
+      let maxVal = 0;
+      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+        const floatData = audioBuffer.getChannelData(channel);
+        for (let i = 0; i < floatData.length; i++) {
+          const absVal = Math.abs(floatData[i]);
+          if (absVal > maxVal) {
+            maxVal = absVal;
+          }
+        }
+      }
+      
+      setMaxPeaks(prev => ({ ...prev, [rec.timestamp]: maxVal }));
+      setIsNormalizing(prev => ({ ...prev, [rec.timestamp]: false }));
+      return maxVal;
+    } catch (err) {
+      console.error("Error decoding audio data for peak detection:", err);
+      setIsNormalizing(prev => ({ ...prev, [rec.timestamp]: false }));
+      return 1.0;
+    }
+  };
+
+  const computeNormalizationGain = async (rec: typeof recordings[0], targetPercentOverride?: number) => {
+    const maxVal = await extractMaxPeak(rec);
+    const percent = targetPercentOverride !== undefined 
+      ? targetPercentOverride 
+      : (normalizationThresholds[rec.timestamp] !== undefined ? normalizationThresholds[rec.timestamp] : 85);
+    const targetPeak = percent / 100;
+    let gain = 1.0;
+    if (maxVal > 0.01) {
+      gain = targetPeak / maxVal;
+      if (gain > 4) gain = 4;
+    }
+    setNormalizationGains(prev => ({ ...prev, [rec.timestamp]: gain }));
+    return gain;
+  };
+
+  const toggleNormalization = async (rec: typeof recordings[0]) => {
+    const timestamp = rec.timestamp;
+    const isCurrentlyNormalized = !normalizedTakes[timestamp];
+    
+    setNormalizedTakes(prev => ({ ...prev, [timestamp]: isCurrentlyNormalized }));
+    
+    let normGain = 1.0;
+    if (isCurrentlyNormalized) {
+      normGain = await computeNormalizationGain(rec);
+    }
+    
+    if (playingTimestamp === timestamp && volumeNodeRef.current && currentCtxRef.current) {
+      try {
+        const baseVol = takeVolumes[timestamp] !== undefined ? takeVolumes[timestamp] : 0.8;
+        const targetVol = isCurrentlyNormalized ? baseVol * normGain : baseVol;
+        volumeNodeRef.current.gain.linearRampToValueAtTime(targetVol, currentCtxRef.current.currentTime + 0.05);
+      } catch (err) {
+        console.warn("Could not ramp volume node:", err);
+      }
+    }
+  };
+
+  const handleThresholdChange = async (rec: typeof recordings[0], newPercent: number) => {
+    const timestamp = rec.timestamp;
+    setNormalizationThresholds(prev => ({ ...prev, [timestamp]: newPercent }));
+    
+    // Calculate new gain immediately (either use cached peak or decode if not done yet)
+    let maxVal = maxPeaks[timestamp];
+    if (maxVal === undefined) {
+      maxVal = await extractMaxPeak(rec);
+    }
+    
+    const targetPeak = newPercent / 100;
+    let gain = 1.0;
+    if (maxVal > 0.01) {
+      gain = targetPeak / maxVal;
+      if (gain > 4) gain = 4; // cap gain boost
+    }
+    setNormalizationGains(prev => ({ ...prev, [timestamp]: gain }));
+    
+    // If normalization is active right now and this track is currently playing, update in real-time
+    if (normalizedTakes[timestamp] && playingTimestamp === timestamp && volumeNodeRef.current && currentCtxRef.current) {
+      try {
+        const baseVol = takeVolumes[timestamp] !== undefined ? takeVolumes[timestamp] : 0.8;
+        const targetVol = baseVol * gain;
+        volumeNodeRef.current.gain.linearRampToValueAtTime(targetVol, currentCtxRef.current.currentTime + 0.05);
+      } catch (err) {
+        console.warn("Could not ramp volume node:", err);
+      }
+    }
+  };
+
   const handleVolumeChange = (timestamp: number, value: number) => {
     setTakeVolumes(prev => ({ ...prev, [timestamp]: value }));
     if (playingTimestamp === timestamp && volumeNodeRef.current && currentCtxRef.current) {
       try {
-        volumeNodeRef.current.gain.linearRampToValueAtTime(value, currentCtxRef.current.currentTime + 0.05);
+        const normGain = normalizedTakes[timestamp] ? (normalizationGains[timestamp] || 1.0) : 1.0;
+        volumeNodeRef.current.gain.linearRampToValueAtTime(value * normGain, currentCtxRef.current.currentTime + 0.05);
       } catch (err) {
         console.warn("Could not ramp volume node:", err);
       }
@@ -1206,6 +1353,145 @@ export const StudioMode: React.FC<StudioModeProps> = ({
                           className="w-12 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
                           title="Ajustar volume do take"
                         />
+                      </div>
+
+                      {/* Normalização e Limiar agrupados verticalmente */}
+                      <div className="flex flex-col gap-1 min-w-[95px] bg-zinc-950/40 p-1.5 rounded-lg border border-zinc-800/60">
+                        {/* Checkbox button control */}
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none hover:text-white transition-colors" title="Normalizar volume deste take automaticamente">
+                          <input
+                            type="checkbox"
+                            checked={!!normalizedTakes[rec.timestamp]}
+                            onChange={() => toggleNormalization(rec)}
+                            disabled={isNormalizing[rec.timestamp]}
+                            className="w-3 h-3 rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0 cursor-pointer accent-emerald-400 shrink-0"
+                          />
+                          <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest shrink-0">
+                            {isNormalizing[rec.timestamp] ? "CALC..." : "NORM."}
+                          </span>
+                        </label>
+
+                        {/* Limiar de Normalização (slider de 0 a 100%) */}
+                        <div className="flex flex-col gap-0.5 mt-0.5">
+                          <div className="flex items-center justify-between text-[6.5px] font-black text-zinc-500 uppercase tracking-widest gap-1 select-none">
+                            <span>ALVO/LIMIAR</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-zinc-400 text-[6px]">
+                                {(normalizationThresholds[rec.timestamp] !== undefined ? normalizationThresholds[rec.timestamp] : 85)}%
+                              </span>
+                              <button
+                                onClick={() => handleThresholdChange(rec, 85)}
+                                className="text-zinc-500 hover:text-emerald-400 p-0.5 rounded hover:bg-zinc-800 transition-all cursor-pointer"
+                                title="Resetar limiar para o padrão de 85%"
+                              >
+                                <RotateCcw className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={normalizationThresholds[rec.timestamp] !== undefined ? normalizationThresholds[rec.timestamp] : 85}
+                            onChange={(e) => handleThresholdChange(rec, parseInt(e.target.value))}
+                            className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer accent-emerald-400"
+                            title="Ajustar o limiar/volume alvo de normalização"
+                          />
+                        </div>
+
+                        {/* Peak to Threshold Indicator Bar */}
+                        {(() => {
+                          const peak = maxPeaks[rec.timestamp] !== undefined ? maxPeaks[rec.timestamp] : 0.5;
+                          const volume = takeVolumes[rec.timestamp] !== undefined ? takeVolumes[rec.timestamp] : 0.8;
+                          const normalized = !!normalizedTakes[rec.timestamp];
+                          const gain = normalized ? (normalizationGains[rec.timestamp] !== undefined ? normalizationGains[rec.timestamp] : 1.0) : 1.0;
+                          const effectivePeak = peak * volume * gain;
+                          const threshold = (normalizationThresholds[rec.timestamp] !== undefined ? normalizationThresholds[rec.timestamp] : 85) / 100;
+                          
+                          // Calculate percentage of threshold we are hitting
+                          const ratio = threshold > 0 ? (effectivePeak / threshold) : 0;
+                          const percentageOfThreshold = Math.min(ratio * 100, 100);
+
+                          // Determine color (green -> yellow -> red)
+                          let barColorClass = "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]";
+                          let labelText = "Abaixo";
+                          let textColorClass = "text-emerald-400";
+                          if (ratio >= 0.98) {
+                            barColorClass = "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)] animate-pulse";
+                            labelText = "No Limiar!";
+                            textColorClass = "text-rose-400";
+                          } else if (ratio >= 0.80) {
+                            barColorClass = "bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]";
+                            labelText = "Próximo";
+                            textColorClass = "text-amber-400";
+                          } else if (ratio < 0.3) {
+                            labelText = "Baixo";
+                            textColorClass = "text-zinc-500";
+                          }
+
+                          return (
+                            <div className="flex flex-col gap-0.5 mt-0.5 pt-0.5 border-t border-zinc-800/40" title={`Pico efetivo: ${(effectivePeak*100).toFixed(0)}% vs Limiar: ${(threshold*100).toFixed(0)}%`}>
+                              <div className="flex items-center justify-between text-[5.5px] font-black uppercase tracking-widest leading-none">
+                                <span className="text-zinc-600">PICO</span>
+                                <span className={cn("font-bold", textColorClass)}>{labelText}</span>
+                              </div>
+                              <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden flex items-center">
+                                <div 
+                                  className={cn("h-full rounded-full transition-all duration-300", barColorClass)} 
+                                  style={{ width: `${percentageOfThreshold}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Suavização Fade-In/Out */}
+                      <div className="flex flex-col gap-1 min-w-[95px] bg-zinc-950/40 p-1.5 rounded-lg border border-zinc-800/60">
+                        <div className="flex items-center gap-1.5 select-none text-[8px] font-black text-zinc-400 uppercase tracking-widest">
+                          <span>SUAVIZAÇÃO</span>
+                        </div>
+
+                        {/* Fade-In */}
+                        <div className="flex flex-col gap-0.5 mt-0.5">
+                          <div className="flex items-center justify-between text-[6.5px] font-black text-zinc-500 uppercase tracking-widest gap-1 select-none">
+                            <span>FADE-IN</span>
+                            <span className="text-zinc-400 text-[6px]">
+                              {(fadeInDurations[rec.timestamp] !== undefined ? fadeInDurations[rec.timestamp] : 0).toFixed(1)}s
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="0.1"
+                            value={fadeInDurations[rec.timestamp] !== undefined ? fadeInDurations[rec.timestamp] : 0}
+                            onChange={(e) => setFadeInDurations(prev => ({ ...prev, [rec.timestamp]: parseFloat(e.target.value) }))}
+                            className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer accent-emerald-400"
+                            title="Ajustar tempo de Fade-In (entrada)"
+                          />
+                        </div>
+
+                        {/* Fade-Out */}
+                        <div className="flex flex-col gap-0.5 mt-0.5">
+                          <div className="flex items-center justify-between text-[6.5px] font-black text-zinc-500 uppercase tracking-widest gap-1 select-none">
+                            <span>FADE-OUT</span>
+                            <span className="text-zinc-400 text-[6px]">
+                              {(fadeOutDurations[rec.timestamp] !== undefined ? fadeOutDurations[rec.timestamp] : 0).toFixed(1)}s
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="0.1"
+                            value={fadeOutDurations[rec.timestamp] !== undefined ? fadeOutDurations[rec.timestamp] : 0}
+                            onChange={(e) => setFadeOutDurations(prev => ({ ...prev, [rec.timestamp]: parseFloat(e.target.value) }))}
+                            className="w-full h-1 bg-zinc-800 rounded appearance-none cursor-pointer accent-emerald-400"
+                            title="Ajustar tempo de Fade-Out (saída)"
+                          />
+                        </div>
                       </div>
 
                       {/* Compare Control Button Group (Only show for takes that aren't purely Dry) */}

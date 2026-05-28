@@ -1,5 +1,5 @@
 {
-  "name": "Beatron AI Pro",
+  "name": "90 BATUKADAS",
   "description": "An advanced AI-powered music and beat maker using Gemini and Tone.js",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

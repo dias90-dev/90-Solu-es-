@@ -726,7 +726,7 @@ export default function App() {
     }
   };
 
-  const applyDrumPreset = (presetName: 'kizomba' | 'funana' | 'funk' | 'samba' | 'rap') => {
+  const applyDrumPreset = (presetName: 'kizomba' | 'funana' | 'funk' | 'samba' | 'rap' | 'trap') => {
     if (!song) return;
 
     let updatedTracks = [...song.tracks];
@@ -791,6 +791,17 @@ export default function App() {
         kicks.forEach(k => addNoteAt(k, 'kick'));
         snares.forEach(s => addNoteAt(s, 'snare'));
         hihats.forEach(h => addNoteAt(h, 'hihat'));
+      } else if (presetName === 'trap') {
+        // Padrão de bumbo pesado, bumbo duplo rápido (8,9) e hi-hat em semicolcheias com variações rápidas
+        const kicks = [0, 5, 8, 9, 14];
+        const snares = [4, 12];
+        // Semicolcheias com algumas omissões síncronas para criar variações rápidas
+        const hihats = [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 14, 15];
+        const openhats = [2, 10]; // Elementos adicionais para brilhar
+        kicks.forEach(k => addNoteAt(k, 'kick'));
+        snares.forEach(s => addNoteAt(s, 'snare'));
+        hihats.forEach(h => addNoteAt(h, 'hihat'));
+        openhats.forEach(o => addNoteAt(o, 'openhat'));
       }
     }
 
@@ -1363,11 +1374,15 @@ export default function App() {
       <header className="border-b border-zinc-800/50 bg-zinc-900/50 backdrop-blur-md sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(52,211,153,0.5)] border border-emerald-500/20">
-              <img src="/logo.png" alt="90 Batidas Logo" className="w-full h-full object-cover" />
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-[0_0_15px_rgba(52,211,153,0.35)] border border-emerald-400/20 text-zinc-950 font-black relative overflow-hidden select-none" title="90 BATUKADAS">
+              <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/20 to-white/0 animate-pulse" />
+              <div className="relative z-10 flex items-center justify-center gap-0.5">
+                <span className="text-zinc-950 font-sans font-extrabold text-[12px] leading-none tracking-tighter">90</span>
+                <span className="text-zinc-950 font-mono font-black text-[9px] leading-none tracking-tighter">B</span>
+              </div>
             </div>
             <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-500 hidden sm:block">
-              90 Batidas
+              90 BATUKADAS
             </h1>
           </div>
 
@@ -2052,7 +2067,7 @@ export default function App() {
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
                 <div className="flex flex-col items-center gap-2 opacity-20">
                   <Music className="w-10 h-10" />
-                  <span className="text-zinc-400 text-[10px] font-black uppercase tracking-[0.3em]">Estúdio 90 Batidas</span>
+                  <span className="text-zinc-400 text-[10px] font-black uppercase tracking-[0.3em]">Estúdio 90 BATUKADAS</span>
                 </div>
               </div>
             )}
@@ -2161,6 +2176,12 @@ export default function App() {
                       className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/30 text-zinc-300 hover:text-cyan-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
                     >
                       🎤 Rap Adegão Beat
+                    </button>
+                    <button
+                      onClick={() => applyDrumPreset('trap')}
+                      className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/30 text-zinc-300 hover:text-fuchsia-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
+                    >
+                      👾 Trap Estúdio Beat
                     </button>
                   </div>
                 </div>
@@ -2609,7 +2630,7 @@ export default function App() {
           <button onClick={() => setShowTerms(true)} className="hover:text-emerald-400 transition-colors">Termos de Uso</button>
           <button onClick={() => setShowPrivacy(true)} className="hover:text-emerald-400 transition-colors">Política de Privacidade</button>
         </div>
-        <p>&copy; {new Date().getFullYear()} 90 Batidas Musical. Todos os direitos reservados.</p>
+        <p>&copy; {new Date().getFullYear()} 90 BATUKADAS. Todos os direitos reservados.</p>
       </footer>
 
       {showTerms && (
@@ -2617,7 +2638,7 @@ export default function App() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-white mb-4">Termos de Uso</h2>
             <div className="space-y-4 text-sm text-zinc-300">
-              <p>Ao utilizar o 90 Batidas, você concorda que: </p>
+              <p>Ao utilizar o 90 BATUKADAS, você concorda que: </p>
               <ul className="list-disc pl-5 space-y-2">
                 <li>A geração de música e arranjos tem fins de entretenimento, educação e/ou experimentação musical (gratuitamente) e comerciais (no modo Pró).</li>
                 <li>Você retém os direitos autorais de toda composição ou voz original que submeter à plataforma. No entanto, o motor de áudio sintético baseia-se em inteligência artificial e os samples gerados podem requerer interpretações legais dependendo da sua finalidade comercial.</li>
@@ -2636,7 +2657,7 @@ export default function App() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-white mb-4">Política de Privacidade</h2>
             <div className="space-y-4 text-sm text-zinc-300">
-              <p>Sua privacidade é crítica e respeitada no 90 Batidas:</p>
+              <p>Sua privacidade é crítica e respeitada no 90 BATUKADAS:</p>
               <ul className="list-disc pl-5 space-y-2">
                 <li>Dados que coletamos: Email, histórico de prompts musicais inseridos, e gravações temporárias necessárias para a geração e descoberta de notas por IA limitadas sob demanda.</li>
                 <li>Bancos de dados: Utilizamos o Cloud Firestore Enterprise para segurança e armazenamento descentralizado e seguro das informações da sua conta. </li>
